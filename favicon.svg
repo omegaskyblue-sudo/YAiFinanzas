@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Fondo con bordes redondeados (Estilo App iOS/Android) -->
+  <rect x="0" y="0" width="512" height="512" rx="120" ry="120" fill="#4f46e5"/>
+  
+  <!-- Símbolo Abstracto "Y" / Gráfica de Crecimiento -->
+  <g transform="translate(106, 106) scale(0.6)">
+    <!-- Barra Izquierda (Representa una fuente de ingreso) -->
+    <path d="M100 400 L100 250 A 20 20 0 0 1 140 250 L140 400 A 20 20 0 0 1 100 400 Z" fill="#ffffff" opacity="0.9"/>
+    
+    <!-- Barra Derecha (Representa la otra fuente, más alta/crecimiento) -->
+    <path d="M360 400 L360 150 A 20 20 0 0 0 320 150 L320 400 A 20 20 0 0 0 360 400 Z" fill="#ffffff" opacity="0.9"/>
+    
+    <!-- Línea de Conexión/Tendencia (Formando la Y) -->
+    <path d="M120 250 C 120 250, 230 350, 230 350 C 230 350, 340 150, 340 150" stroke="#10b981" stroke-width="60" stroke-linecap="round" fill="none"/>
+    
+    <!-- Punto de Éxito/Moneda -->
+    <circle cx="340" cy="150" r="40" fill="#fbbf24"/>
+  </g>
+</svg>
