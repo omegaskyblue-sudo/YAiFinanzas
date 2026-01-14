@@ -3,13 +3,13 @@ import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     tailwindcss(),
   ],
-  base: '/YAiFinanzas/',
+  base: command === 'serve' ? '/' : '/YAiFinanzas/',
   server: {
     port: 3006,
   },
-})
+}))

@@ -75,7 +75,19 @@ export default function App() {
   const [isAppLoggedIn, setIsAppLoggedIn] = useState(false);
   const [currentUserData, setCurrentUserData] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [darkMode, setDarkMode] = useState(false);
+
+  // Theme Logic - Persisted and synced with HTML
+  const [darkMode, setDarkMode] = useState(() => loadFromStorage('yaifinanzas_theme', false));
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    saveToStorage('yaifinanzas_theme', darkMode);
+  }, [darkMode]);
+
   const fileInputRef = useRef(null);
 
   // System Users State
@@ -411,7 +423,7 @@ export default function App() {
 
   if (!isAppLoggedIn) {
     return (
-      <div className={`min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white dark:from-slate-900 dark:to-slate-800 p-4 transition-colors duration-300 ${darkMode ? 'dark' : ''}`}>
+      <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white dark:from-slate-900 dark:to-slate-800 p-4 transition-colors duration-300">
         <Card className="w-full max-w-md p-8 shadow-2xl border-none">
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-indigo-200 dark:shadow-none"><Lock className="w-8 h-8 text-white" /></div>
@@ -439,7 +451,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-slate-900' : 'bg-slate-50'}`}>
+    <div className="min-h-screen transition-colors duration-300 bg-slate-50 dark:bg-slate-900">
       <nav className="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
