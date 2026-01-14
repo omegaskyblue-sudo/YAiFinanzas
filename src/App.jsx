@@ -539,7 +539,7 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="lg:col-span-2 p-6">
                 <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Distribución del Ingreso</h3>
-                <div className="h-64 w-full">
+                <div className="h-64 w-full relative">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart layout="vertical" data={pieData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
