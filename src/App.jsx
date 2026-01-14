@@ -72,9 +72,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   // App Logic State
-  const [isAppLoggedIn, setIsAppLoggedIn] = useState(false);
-  const [currentUserData, setCurrentUserData] = useState(null);
+  const [currentUserData, setCurrentUserData] = useState(() => loadFromStorage('yaifinanzas_session', null));
+  const [isAppLoggedIn, setIsAppLoggedIn] = useState(() => !!loadFromStorage('yaifinanzas_session', null));
   const [activeTab, setActiveTab] = useState('dashboard');
+
 
   // Theme Logic - Persisted and synced with HTML
   const [darkMode, setDarkMode] = useState(() => loadFromStorage('yaifinanzas_theme', false));
@@ -154,6 +155,7 @@ export default function App() {
     if (user) {
       setCurrentUserData(user);
       setIsAppLoggedIn(true);
+      saveToStorage('yaifinanzas_session', user);
       setLoginForm({ username: '', password: '', error: '' });
     } else {
       setLoginForm(prev => ({ ...prev, error: 'Usuario o contraseña incorrectos' }));
@@ -163,6 +165,7 @@ export default function App() {
   const handleLogout = () => {
     setIsAppLoggedIn(false);
     setCurrentUserData(null);
+    localStorage.removeItem('yaifinanzas_session');
     setActiveTab('dashboard');
   };
 
