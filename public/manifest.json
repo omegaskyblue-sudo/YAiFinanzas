@@ -1,0 +1,24 @@
+{
+    "name": "YAiFinanzas - Gestión Financiera",
+    "short_name": "YAiFinanzas",
+    "description": "Gestiona tus finanzas personales entre España y República Dominicana. Control de gastos, ingresos, ahorros y conversión EUR/DOP.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f8fafc",
+    "theme_color": "#4f46e5",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": [
+        "finance",
+        "productivity"
+    ],
+    "lang": "es",
+    "dir": "ltr"
+}
