@@ -677,10 +677,57 @@ export default function App() {
       <Modal isOpen={!!editingItem} onClose={() => setEditingItem(null)} title={targetCollection === 'incomes' ? 'Agregar Ingreso' : 'Agregar Nuevo Movimiento'}>
         <form onSubmit={handleAddItem} className="space-y-4">
           <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre</label><input name="name" required autoFocus className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder={targetCollection === 'incomes' ? "Ej. Sueldo Enero" : "Ej. Compra Supermerk..."} /></div>
-          <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Monto {targetCollection?.includes('dr') ? '(RD$)' : '(€)'}</label><input name="amount" type="number" required step="0.01" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="0.00" /></div>
+
+          {/* Lógica de conversión de moneda para RD */}
+          {targetCollection?.includes('dr') ? (
+            <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div>
+                <label className="block text-xs font-medium text-indigo-600 dark:text-indigo-400 mb-1">En Euros (€)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="w-full p-2 rounded-md border border-indigo-200 dark:border-indigo-900 dark:bg-slate-700 dark:text-white focus:outline-none focus:border-indigo-500"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const dopField = document.getElementById('input-amount-dop');
+                    if (dopField) dopField.value = val ? (val * data.exchangeRate).toFixed(2) : '';
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-orange-600 dark:text-orange-400 mb-1">En Pesos (RD$)</label>
+                <input
+                  id="input-amount-dop"
+                  name="amount"
+                  type="number"
+                  required
+                  step="0.01"
+                  placeholder="0.00"
+                  className="w-full p-2 rounded-md border border-orange-200 dark:border-orange-900 dark:bg-slate-700 dark:text-white focus:outline-none focus:border-orange-500 font-bold"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const eurField = e.target.parentElement.previousElementSibling.querySelector('input');
+                    if (eurField) eurField.value = val ? (val / data.exchangeRate).toFixed(2) : '';
+                  }}
+                />
+              </div>
+              <div className="col-span-2 text-[10px] text-center text-slate-400">
+                Tasa de cambio: 1 EUR = {data.exchangeRate} DOP
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Monto (€)</label><input name="amount" type="number" required step="0.01" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="0.00" /></div>
+              <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fecha</label><input name="date" type="date" required defaultValue={getTodayString()} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></div>
+            </div>
+          )}
+
+          {/* Campo de fecha para RD (ya incluido arriba para Spain, necesario aquí también si es RD) */}
+          {targetCollection?.includes('dr') && (
             <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Fecha</label><input name="date" type="date" required defaultValue={getTodayString()} className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" /></div>
-          </div>
+          )}
+
           {targetCollection?.includes('expenses') && (<div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tipo</label><select name="type" className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"><option value="fixed">Fijo (Necesidad)</option><option value="variable">Variable (Deseo/Ocio)</option></select></div>)}
           <div className="flex justify-end gap-3 pt-4"><button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">Cancelar</button><button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm">Guardar</button></div>
         </form>
