@@ -8,13 +8,17 @@ import {
   CreditCard, DollarSign, Home, Calendar, Filter, Settings,
   Download, Upload, Copy, User, FileJson, AlertTriangle,
   Users, Lock, Key, CheckCircle, XCircle, LogIn, FileText,
-  ArrowDownRight, ArrowUpRight, CalendarDays
+  ArrowDownRight, ArrowUpRight, CalendarDays, Cloud, CloudOff, RefreshCw
 } from 'lucide-react';
+import { initGoogleDrive, requestAccessToken, findDbFile, saveDbFile, readDbFile } from './googleDriveUtils';
 
 // --- LocalStorage Helpers ---
 const STORAGE_KEYS = {
   BUDGET: 'yaifinanzas_budget',
-  USERS: 'yaifinanzas_users'
+  USERS: 'yaifinanzas_users',
+  NAMES: 'yaifinanzas_names',
+  DRIVE_ENABLED: 'yaifinanzas_drive_enabled',
+  DRIVE_CLIENT_ID: 'yaifinanzas_drive_client_id'
 };
 
 const loadFromStorage = (key, defaultValue) => {
@@ -67,9 +71,60 @@ const formatCurrency = (amount, currency = 'EUR') => {
 // Helper to get today's date in YYYY-MM-DD
 const getTodayString = () => new Date().toISOString().split('T')[0];
 
+const SummaryCard = ({ title, amount, subtext, colorClass, icon: IconComponent }) => (
+  <Card className="p-6 flex items-start justify-between hover:shadow-md transition-shadow">
+    <div>
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">{title}</p>
+      <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{formatCurrency(amount)}</h3>
+      {subtext && <p className={`text-xs ${colorClass}`}>{subtext}</p>}
+    </div>
+    <div className={`p-3 rounded-full bg-opacity-10 ${colorClass.replace('text-', 'bg-').split(' ')[0]}`}>
+      <IconComponent className={`w-6 h-6 ${colorClass.split(' ')[0]}`} />
+    </div>
+  </Card>
+);
+
+const ExpenseList = ({ region, type, currency, data, setTargetCollection, setEditingItem, handleDeleteItem }) => {
+  const items = data[region][type];
+  const isExpenses = type === 'expenses';
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-white">
+          {isExpenses ? <CreditCard className="w-5 h-5 text-rose-500" /> : <Save className="w-5 h-5 text-emerald-500" />}
+          {isExpenses ? 'Movimientos' : 'Metas de Ahorro'}
+        </h3>
+        <button onClick={() => { setTargetCollection(`${region}_${type}`); setEditingItem(true); }} className="p-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full transition-colors"><Plus className="w-4 h-4 text-slate-600 dark:text-slate-300" /></button>
+      </div>
+      {items.length === 0 ? <div className="text-center py-8 text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-dashed border-slate-200">No hay registros aún</div> : (
+        <div className="space-y-3">
+          {items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).map(item => (
+            <div key={item.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-700 hover:border-indigo-200 transition-colors group">
+              <div className="flex items-center gap-3">
+                <div className={`w-2 h-10 rounded-full ${isExpenses ? 'bg-rose-400' : 'bg-emerald-400'}`}></div>
+                <div>
+                  <p className="font-medium text-slate-800 dark:text-slate-200">{item.name}</p>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    {item.date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(item.date).toLocaleDateString()}</span>}
+                    {isExpenses && <span>• {item.type}</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="font-bold text-slate-700 dark:text-slate-300">{formatCurrency(item.amount, currency)}</span>
+                <button onClick={() => handleDeleteItem(region, type, item.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 transition-all"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   // App State
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // App Logic State
   const [currentUserData, setCurrentUserData] = useState(() => loadFromStorage('yaifinanzas_session', null));
@@ -92,7 +147,15 @@ export default function App() {
   const fileInputRef = useRef(null);
 
   // System Users State
-  const [systemUsers, setSystemUsers] = useState([]);
+  const [systemUsers, setSystemUsers] = useState(() => {
+    let savedUsers = loadFromStorage(STORAGE_KEYS.USERS, []);
+    if (savedUsers.length === 0) {
+      const defaultUser = { id: Date.now().toString(), username: 'root', password: '28cddf6e77', role: 'admin', createdAt: new Date().toISOString() };
+      savedUsers = [defaultUser];
+      saveToStorage(STORAGE_KEYS.USERS, savedUsers);
+    }
+    return savedUsers;
+  });
   const [loginForm, setLoginForm] = useState({ username: '', password: '', error: '' });
 
   // --- Report Filters State ---
@@ -103,45 +166,102 @@ export default function App() {
   });
 
   // Budget Data State
-  const [data, setData] = useState({
-    exchangeRate: 64.50,
-    incomes: [
-      { id: 1, name: 'Sueldo Base', amount: 2500, date: getTodayString() }
-    ],
-    spain: {
-      expenses: [{ id: 'se1', name: 'Alquiler/Hipoteca', amount: 900, type: 'fixed', date: getTodayString() }],
-      savings: [{ id: 'ss1', name: 'Fondo de Emergencia', amount: 200, date: getTodayString() }]
-    },
-    dr: {
-      expenses: [{ id: 'de1', name: 'Ayuda Familiar', amount: 15000, type: 'fixed', date: getTodayString() }],
-      savings: [{ id: 'ds1', name: 'Ahorro Local', amount: 2000, date: getTodayString() }]
-    }
+  const [data, setData] = useState(() => {
+    const savedBudget = loadFromStorage(STORAGE_KEYS.BUDGET, null);
+    if (savedBudget) return savedBudget;
+
+    return {
+      exchangeRate: 64.50,
+      incomes: [
+        { id: 1, name: 'Sueldo Base', amount: 2500, date: getTodayString() }
+      ],
+      spain: {
+        expenses: [{ id: 'se1', name: 'Alquiler/Hipoteca', amount: 900, type: 'fixed', date: getTodayString() }],
+        savings: [{ id: 'ss1', name: 'Fondo de Emergencia', amount: 200, date: getTodayString() }]
+      },
+      dr: {
+        expenses: [{ id: 'de1', name: 'Ayuda Familiar', amount: 15000, type: 'fixed', date: getTodayString() }],
+        savings: [{ id: 'ds1', name: 'Ahorro Local', amount: 2000, date: getTodayString() }]
+      }
+    };
   });
 
   const [editingItem, setEditingItem] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
   const [targetCollection, setTargetCollection] = useState(null);
+  const [suggestedNames, setSuggestedNames] = useState(() => loadFromStorage(STORAGE_KEYS.NAMES, []));
+
+  // Drive States
+  const [isDriveEnabled, setIsDriveEnabled] = useState(() => loadFromStorage(STORAGE_KEYS.DRIVE_ENABLED, false));
+  const [driveClientId, setDriveClientId] = useState(() => loadFromStorage(STORAGE_KEYS.DRIVE_CLIENT_ID, ''));
+  const [isDriveAuthenticated, setIsDriveAuthenticated] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isDriveSdkReady, setIsDriveSdkReady] = useState(false);
+  const [driveFileId, setDriveFileId] = useState(null);
 
   // --- Initial Load from LocalStorage ---
   useEffect(() => {
-    // Load budget data
-    const savedBudget = loadFromStorage(STORAGE_KEYS.BUDGET, null);
-    if (savedBudget) setData(savedBudget);
-
-    // Load users
-    let savedUsers = loadFromStorage(STORAGE_KEYS.USERS, []);
-    if (savedUsers.length === 0) {
-      const defaultUser = { id: Date.now().toString(), username: 'root', password: '28cddf6e77', role: 'admin', createdAt: new Date().toISOString() };
-      savedUsers = [defaultUser];
-      saveToStorage(STORAGE_KEYS.USERS, savedUsers);
+    if (isDriveEnabled && driveClientId) {
+      handleDriveInit();
     }
-    setSystemUsers(savedUsers);
-    setLoading(false);
   }, []);
+
+  const handleDriveInit = () => {
+    try {
+      initGoogleDrive(driveClientId, () => {
+        setIsDriveSdkReady(true);
+        console.log('Google Drive Initialized');
+      });
+    } catch (e) { console.error('Drive Init Error:', e); }
+  };
+
+  const handleDriveLogin = async () => {
+    if (!driveClientId) return alert('Por favor, ingresa un Client ID primero.');
+    if (!isDriveSdkReady) return alert('El sistema de Google Drive aún se está cargando. Espera unos segundos.');
+    setIsSyncing(true);
+    try {
+      requestAccessToken(async (resp) => {
+        setIsDriveAuthenticated(true);
+        // Find existing file
+        const file = await findDbFile();
+        if (file) {
+          setDriveFileId(file.id);
+          if (confirm('Se encontró un archivo en Drive. ¿Deseas descargar los datos de la nube y sobreescribir los locales? (Recomendado para sincronizar)')) {
+            const cloudData = await readDbFile(file.id);
+            if (cloudData) {
+              setData(cloudData);
+              saveToStorage(STORAGE_KEYS.BUDGET, cloudData);
+            }
+          }
+        }
+        setIsSyncing(false);
+      });
+    } catch (e) {
+      console.error(e);
+      setIsSyncing(false);
+      alert(e.message || 'Error en la autenticación con Google');
+    }
+  };
+
+  const syncToCloud = async (latestData) => {
+    if (!isDriveEnabled || !isDriveAuthenticated) return;
+    setIsSyncing(true);
+    try {
+      const result = await saveDbFile(latestData, driveFileId);
+      if (result && !driveFileId) {
+        setDriveFileId(result.id);
+      }
+    } catch (e) {
+      console.error('Sync error:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const saveData = (newData) => {
     setData(newData);
     saveToStorage(STORAGE_KEYS.BUDGET, newData);
+    syncToCloud(newData);
   };
 
   // --- Login & User Logic ---
@@ -315,6 +435,13 @@ export default function App() {
     const type = formData.get('type') || 'variable';
     const date = formData.get('date') || getTodayString();
 
+    // Save name for autocomplete
+    if (name && !suggestedNames.includes(name)) {
+      const updatedNames = [name, ...suggestedNames].slice(0, 50);
+      setSuggestedNames(updatedNames);
+      saveToStorage(STORAGE_KEYS.NAMES, updatedNames);
+    }
+
     const newItem = { id: Date.now().toString(), name, amount, type, date };
 
     if (targetCollection === 'incomes') {
@@ -360,59 +487,10 @@ export default function App() {
         const importedData = JSON.parse(e.target.result);
         if (importedData.budget) saveData(importedData.budget);
         alert('Datos de presupuesto restaurados.');
-      } catch (error) { alert('Error al leer el archivo.'); }
+      } catch { alert('Error al leer el archivo.'); }
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const SummaryCard = ({ title, amount, subtext, colorClass, icon: Icon }) => (
-    <Card className="p-6 flex items-start justify-between hover:shadow-md transition-shadow">
-      <div>
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">{title}</p>
-        <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{formatCurrency(amount)}</h3>
-        {subtext && <p className={`text-xs ${colorClass}`}>{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-full bg-opacity-10 ${colorClass.replace('text-', 'bg-').split(' ')[0]}`}><Icon className={`w-6 h-6 ${colorClass.split(' ')[0]}`} /></div>
-    </Card>
-  );
-
-  const ExpenseList = ({ region, type, currency }) => {
-    const items = data[region][type];
-    const isExpenses = type === 'expenses';
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-800 dark:text-white">
-            {isExpenses ? <CreditCard className="w-5 h-5 text-rose-500" /> : <Save className="w-5 h-5 text-emerald-500" />}
-            {isExpenses ? 'Movimientos' : 'Metas de Ahorro'}
-          </h3>
-          <button onClick={() => { setTargetCollection(`${region}_${type}`); setEditingItem(true); }} className="p-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full transition-colors"><Plus className="w-4 h-4 text-slate-600 dark:text-slate-300" /></button>
-        </div>
-        {items.length === 0 ? <div className="text-center py-8 text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-dashed border-slate-200">No hay registros aún</div> : (
-          <div className="space-y-3">
-            {items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).map(item => (
-              <div key={item.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-700 hover:border-indigo-200 transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-10 rounded-full ${isExpenses ? 'bg-rose-400' : 'bg-emerald-400'}`}></div>
-                  <div>
-                    <p className="font-medium text-slate-800 dark:text-slate-200">{item.name}</p>
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      {item.date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(item.date).toLocaleDateString()}</span>}
-                      {isExpenses && <span>• {item.type}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{formatCurrency(item.amount, currency)}</span>
-                  <button onClick={() => handleDeleteItem(region, type, item.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-rose-500 transition-all"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
   };
 
   const pieData = [
@@ -466,6 +544,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isDriveEnabled && (
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isDriveAuthenticated ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                {isSyncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : isDriveAuthenticated ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
+                <span className="hidden sm:inline">{isDriveAuthenticated ? 'Cloud Ok' : 'Cloud Off'}</span>
+              </div>
+            )}
             <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition-colors">{darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}</button>
             <button onClick={handleLogout} className="p-2 rounded-full hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors" title="Cerrar Sesión"><LogOut className="w-5 h-5" /></button>
           </div>
@@ -578,12 +662,12 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-right-8 duration-300">
             <Card className={`p-6 border-t-4 ${activeTab === 'spain' ? 'border-t-rose-500' : 'border-t-orange-500'}`}>
               <div className="flex justify-between items-end mb-6"><div><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Gastos {activeTab === 'spain' ? 'España' : 'RD'}</h2><p className="text-sm text-slate-500">{activeTab === 'spain' ? 'Moneda: Euro (€)' : `Moneda: Peso (RD$) • 1€ = ${data.exchangeRate}RD$`}</p></div><div className="text-right"><p className="text-xs text-slate-400 uppercase font-bold">Total</p><p className={`text-3xl font-black ${activeTab === 'spain' ? 'text-rose-500' : 'text-orange-500'}`}>{activeTab === 'spain' ? formatCurrency(totalSpainExpensesEUR) : formatCurrency(totalDRExpensesDOP, 'DOP')}</p></div></div>
-              <ExpenseList region={activeTab} type="expenses" currency={activeTab === 'spain' ? 'EUR' : 'DOP'} />
+              <ExpenseList region={activeTab} type="expenses" currency={activeTab === 'spain' ? 'EUR' : 'DOP'} data={data} setTargetCollection={setTargetCollection} setEditingItem={setEditingItem} handleDeleteItem={handleDeleteItem} />
             </Card>
             <div className="space-y-6">
               <Card className="p-6 border-t-4 border-t-emerald-500">
                 <div className="flex justify-between items-end mb-6"><div><h2 className="text-2xl font-bold text-slate-800 dark:text-white">Ahorros {activeTab === 'spain' ? 'España' : 'RD'}</h2></div><div className="text-right"><p className="text-xs text-slate-400 uppercase font-bold">Total</p><p className="text-3xl font-black text-emerald-500">{activeTab === 'spain' ? formatCurrency(totalSpainSavingsEUR) : formatCurrency(totalDRSavingsDOP, 'DOP')}</p></div></div>
-                <ExpenseList region={activeTab} type="savings" currency={activeTab === 'spain' ? 'EUR' : 'DOP'} />
+                <ExpenseList region={activeTab} type="savings" currency={activeTab === 'spain' ? 'EUR' : 'DOP'} data={data} setTargetCollection={setTargetCollection} setEditingItem={setEditingItem} handleDeleteItem={handleDeleteItem} />
               </Card>
               {activeTab === 'dr' && (<Card className="p-6 bg-gradient-to-br from-orange-50 to-white dark:from-slate-800 dark:to-slate-700 border-orange-200 dark:border-slate-600"><h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2 mb-4"><Calculator className="w-5 h-5 text-orange-500" />Calculadora Rápida</h3><div className="grid grid-cols-2 gap-4"><div><label className="text-xs text-slate-500 block mb-1">Euros (€)</label><input type="number" placeholder="100" className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white" onChange={(e) => { const val = e.target.value; const target = document.getElementById('calc-dop'); if (target) target.value = (val * data.exchangeRate).toFixed(2); }} /></div><div><label className="text-xs text-slate-500 block mb-1">Pesos (RD$)</label><input id="calc-dop" type="number" readOnly className="w-full p-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-transparent text-slate-600 dark:text-slate-400 cursor-not-allowed" /></div></div></Card>)}
             </div>
@@ -669,6 +753,64 @@ export default function App() {
                 <div className="flex flex-col h-full"><div className="flex items-center gap-2 mb-3"><Upload className="w-5 h-5 text-amber-600" /><h3 className="font-bold text-slate-800 dark:text-white">Restaurar Datos</h3></div><p className="text-sm text-slate-500 flex-1 mb-4">Recupera información (JSON).</p><div className="relative"><input type="file" ref={fileInputRef} accept=".json" onChange={handleImportData} className="hidden" id="file-upload" /><label htmlFor="file-upload" className="w-full py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-500 text-slate-700 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-600 rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors"><Upload className="w-4 h-4" />Seleccionar Archivo</label></div></div>
               </Card>
             </div>
+            <Card className="p-6">
+              <h3 className="font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                <Cloud className="w-5 h-5 text-indigo-600" />
+                Sincronización en la Nube (Google Drive)
+              </h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={isDriveEnabled} onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setIsDriveEnabled(enabled);
+                      saveToStorage(STORAGE_KEYS.DRIVE_ENABLED, enabled);
+                      if (enabled && driveClientId) handleDriveInit();
+                    }} className="sr-only peer" />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:width-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                    <span className="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Activar Sincronización</span>
+                  </label>
+                </div>
+
+                {isDriveEnabled && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Google Client ID</label>
+                      <input
+                        type="text"
+                        value={driveClientId}
+                        onChange={(e) => {
+                          setDriveClientId(e.target.value);
+                          saveToStorage(STORAGE_KEYS.DRIVE_CLIENT_ID, e.target.value);
+                        }}
+                        className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm"
+                        placeholder="Ingresa tu Client ID de Google Cloud..."
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Necesario para conectar con tu cuenta de Drive.</p>
+                    </div>
+
+                    <button
+                      onClick={handleDriveLogin}
+                      disabled={!driveClientId || isSyncing || (!isDriveSdkReady && isDriveEnabled)}
+                      className={`w-full py-2.5 rounded-lg flex items-center justify-center gap-2 text-sm font-bold transition-all ${isDriveAuthenticated ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200 dark:shadow-none'}`}
+                    >
+                      {isSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : (!isDriveSdkReady && isDriveEnabled) ? <Loader2 className="w-4 h-4 animate-spin" /> : isDriveAuthenticated ? <CheckCircle className="w-4 h-4" /> : <LogIn className="w-4 h-4" />}
+                      {isSyncing ? 'Sincronizando...' : (!isDriveSdkReady && isDriveEnabled) ? 'Cargando SDK...' : isDriveAuthenticated ? 'Cuenta Conectada' : 'Conectar con Google Drive'}
+                    </button>
+
+                    {isDriveAuthenticated && (
+                      <button
+                        onClick={() => syncToCloud(data)}
+                        className="w-full py-2 text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-1"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Forzar Sincronización Ahora
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Card>
+
             <Card className="p-6"><h3 className="font-bold text-slate-800 dark:text-white mb-4">Tasa de Cambio Global</h3><div className="flex items-center gap-4"><div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700"><span className="text-slate-500 font-medium">1 EUR = </span><input type="number" value={data.exchangeRate} onChange={(e) => saveData({ ...data, exchangeRate: Number(e.target.value) })} className="w-20 bg-transparent font-bold text-slate-800 dark:text-white focus:outline-none" /><span className="text-slate-500 font-medium">DOP</span></div><p className="text-xs text-slate-400">Afecta a todos los cálculos globales.</p></div></Card>
           </div>
         )}
@@ -676,7 +818,22 @@ export default function App() {
 
       <Modal isOpen={!!editingItem} onClose={() => setEditingItem(null)} title={targetCollection === 'incomes' ? 'Agregar Ingreso' : 'Agregar Nuevo Movimiento'}>
         <form onSubmit={handleAddItem} className="space-y-4">
-          <div><label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre</label><input name="name" required autoFocus className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder={targetCollection === 'incomes' ? "Ej. Sueldo Enero" : "Ej. Compra Supermerk..."} /></div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Nombre</label>
+            <input
+              name="name"
+              required
+              autoFocus
+              list="name-suggestions"
+              className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              placeholder={targetCollection === 'incomes' ? "Ej. Sueldo Enero" : "Ej. Compra Supermerk..."}
+            />
+            <datalist id="name-suggestions">
+              {suggestedNames.map((n, i) => (
+                <option key={i} value={n} />
+              ))}
+            </datalist>
+          </div>
 
           {/* Lógica de conversión de moneda para RD */}
           {targetCollection?.includes('dr') ? (
